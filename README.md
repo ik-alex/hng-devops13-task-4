@@ -57,76 +57,109 @@ All commands require root privileges:
 sudo ./vpcctl.py <command> [options]
 ```
 
-1. Create a VPC
+1. Create two VPC
 
 ```bash
-sudo ./vpcctl.py create-vpc myvpc --cidr 10.42.0.0/16
+sudo python3 ./vpcctl.py create-vpc vpc1 --cidr 10.42.0.0/16
+sudo python3 ./vpcctl.py create-vpc vpc2 --cidr 10.43.0.0/16
 
 ```
 
 2. Add a Subnet
 
 ```bash
-sudo ./vpcctl.py add-subnet myvpc public 10.42.1.0/24 --gw-ip 10.42.1.1
-
+sudo python3 ./vpcctl.py add-subnet vpc1 public 10.42.1.0/24 --gw-ip 10.42.1.1
+sudo python3 ./vpcctl.py add-subnet vpc1 private 10.42.2.0/24 --gw-ip 10.42.2.1
+sudo python3 ./vpcctl.py add-subnet vpc2 public 10.43.1.0/24 --gw-ip 10.43.1.1
+sudo python3 ./vpcctl.py add-subnet vpc2 private 10.43.2.0/24 --gw-ip 10.43.2.1
 ```
 
 3. Enable NAT
 
 ```bash
-sudo ./vpcctl.py enable-nat myvpc --subnet public --iface eth0
-
+sudo python3 ./vpcctl.py enable-nat vpc1 --subnet public --iface eth0
+sudo python3 ./vpcctl.py enable-nat vpc2 --subnet public --iface eth0
 ```
 
 4. Deploy an HTTP Server
 
 ```bash
-sudo ./vpcctl.py deploy-server myvpc public --port 8080
+sudo python3 ./vpcctl.py deploy-server vpc1 public --port 8080
+sudo python3 ./vpcctl.py deploy-server vpc2 public --port 8080
 ```
 
-5. Peer VPCs
+5. List Active VPCs
 
 ```bash
-sudo ./vpcctl.py peer myvpc vpc2 --allow 10.42.1.2:10.43.1.2
+sudo python3 ./vpcctl.py list
 ```
 
-6. Apply Network Policy
+6. Peer VPCs (Selective CIDR Peering)
 
 ```bash
-sudo ./vpcctl.py apply-policy policy.json
+sudo python3 ./vpcctl.py peer vpc1 vpc2 --allow 10.42.1.0/24:10.43.1.0/24
 ```
 
-Sample policy.json:
+This allows selective communication only between `vpc1’s` public subnet and `vpc2’s` public subnet.
+
+## Create a subnet-policy.json file:
 
 ```bash
+cat <<EOF > subnet-policy.json
 [
   {
     "subnet": "10.42.1.0/24",
     "ingress": [
-      {"port": 80, "protocol": "tcp", "action": "ALLOW"},
-      {"port": 22, "protocol": "tcp", "action": "DROP"}
+      {"port": 8080, "protocol": "tcp", "action": "allow"},
+      {"port": 22, "protocol": "tcp", "action": "deny"}
+    ]
+  },
+  {
+    "subnet": "10.43.1.0/24",
+    "ingress": [
+      {"port": 8080, "protocol": "tcp", "action": "allow"},
+      {"port": 22, "protocol": "tcp", "action": "deny"}
     ]
   }
 ]
+EOF
+
 ```
 
-7. List VPCs
+7. Apply Firewall Policies
 
 ```bash
-sudo ./vpcctl.py list
+sudo python3 ./vpcctl.py apply-policy subnet-policy.json
+
 ```
 
-8. Show VPC Details
+8. Connectivity Tests
+   Within the same VPC:
 
 ```bash
-sudo ./vpcctl.py show myvpc
-```
-
-9. Delete a VPC
+sudo ip netns exec vpc1-public-ns curl http://10.42.1.2:8080  # Should work
 
 ```
-sudo ./vpcctl.py delete-vpc myvpc
 
+Between VPCs (after peering):
+
+```bash
+sudo ip netns exec vpc1-public-ns curl http://10.43.1.2:8080  # Should work
+
+```
+
+Blocked by Policy:
+
+```bash
+sudo ip netns exec vpc1-public-ns nc -zv 10.42.1.2 22  # Should fail (blocked SSH)
+```
+
+9. Clean Up All Resources
+
+When finished, remove all namespaces, bridges, veth pairs, and iptables rules:
+
+```
+sudo python3 ./vpcctl_cleanup.py
 ```
 
 ## Cleanup
@@ -155,4 +188,5 @@ Cleanup actions are logged in `vpcctl_cleanup.log`.
 ## Author
 
 Ikenna Alexander Nwajagu
+
 # hng-devops13-task-4
