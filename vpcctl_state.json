@@ -1,0 +1,57 @@
+{
+  "vpcs": {
+    "vpc1": {
+      "cidr": "10.42.0.0/16",
+      "bridge": "br-vpc1",
+      "subnets": {
+        "public": {
+          "cidr": "10.42.1.0/24",
+          "ns": "vpc1-public-ns",
+          "veth_ns": "v-vpc1-public",
+          "veth_br": "v-vpc1-publi-b",
+          "gw": "10.42.1.1",
+          "addr": "10.42.1.2"
+        },
+        "private": {
+          "cidr": "10.42.2.0/24",
+          "ns": "vpc1-private-ns",
+          "veth_ns": "v-vpc1-private",
+          "veth_br": "v-vpc1-priva-b",
+          "gw": "10.42.2.1",
+          "addr": "10.42.2.2"
+        }
+      }
+    },
+    "vpc2": {
+      "cidr": "10.43.0.0/16",
+      "bridge": "br-vpc2",
+      "subnets": {
+        "public": {
+          "cidr": "10.43.1.0/24",
+          "ns": "vpc2-public-ns",
+          "veth_ns": "v-vpc2-public",
+          "veth_br": "v-vpc2-publi-b",
+          "gw": "10.43.1.1",
+          "addr": "10.43.1.2"
+        },
+        "private": {
+          "cidr": "10.43.2.0/24",
+          "ns": "vpc2-private-ns",
+          "veth_ns": "v-vpc2-private",
+          "veth_br": "v-vpc2-priva-b",
+          "gw": "10.43.2.1",
+          "addr": "10.43.2.2"
+        }
+      }
+    }
+  },
+  "peers": [
+    {
+      "vpc_a": "vpc1",
+      "vpc_b": "vpc2",
+      "pair_a": "pee-vpc-vpc-a",
+      "pair_b": "pee-vpc-vpc-b",
+      "allow": "10.42.1.0/24:10.43.1.0/24"
+    }
+  ]
+}

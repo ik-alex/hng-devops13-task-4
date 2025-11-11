@@ -1,0 +1,29 @@
+[2025-11-11 14:42:55] Subnet public already exists; skipping
+[2025-11-11 14:42:55] Subnet private already exists; skipping
+[2025-11-11 14:42:55] Subnet public already exists; skipping
+[2025-11-11 14:42:55] Subnet private already exists; skipping
+[2025-11-11 14:42:55] Running: iptables -t nat -A POSTROUTING -s 10.42.1.0/24 -o eth0 -j MASQUERADE
+[2025-11-11 14:42:55] Command failed (rc=127): /bin/sh: 1: iptables: Permission denied
+[2025-11-11 14:42:55] ERROR: Command failed: iptables -t nat -A POSTROUTING -s 10.42.1.0/24 -o eth0 -j MASQUERADE
+[2025-11-11 14:42:55] Running: iptables -t nat -A POSTROUTING -s 10.43.1.0/24 -o eth0 -j MASQUERADE
+[2025-11-11 14:42:55] Command failed (rc=127): /bin/sh: 1: iptables: Permission denied
+[2025-11-11 14:42:55] ERROR: Command failed: iptables -t nat -A POSTROUTING -s 10.43.1.0/24 -o eth0 -j MASQUERADE
+[2025-11-11 14:42:55] Running: ip netns exec vpc1-public-ns nohup python3 -m http.server 8080 >/tmp/vpcctl-vpc1-public-ns-8080.log 2>&1 &
+[2025-11-11 14:42:55] Deployed http.server in vpc1-public-ns on port 8080
+[2025-11-11 14:42:56] Running: ip netns exec vpc2-public-ns nohup python3 -m http.server 8080 >/tmp/vpcctl-vpc2-public-ns-8080.log 2>&1 &
+[2025-11-11 14:42:56] Deployed http.server in vpc2-public-ns on port 8080
+[2025-11-11 14:42:56] - vpc1: CIDR=10.42.0.0/16 bridge=br-vpc1 subnets=['public', 'private']
+[2025-11-11 14:42:56] - vpc2: CIDR=10.43.0.0/16 bridge=br-vpc2 subnets=['public', 'private']
+[2025-11-11 14:42:56] Running: ip link add pee-vpc-vpc-a type veth peer name pee-vpc-vpc-b
+[2025-11-11 14:42:56] Running: ip link set pee-vpc-vpc-a master br-vpc1
+[2025-11-11 14:42:56] Running: ip link set pee-vpc-vpc-b master br-vpc2
+[2025-11-11 14:42:56] Running: ip link set pee-vpc-vpc-a up
+[2025-11-11 14:42:56] Running: ip link set pee-vpc-vpc-b up
+[2025-11-11 14:42:56] Running: iptables -A FORWARD -s 10.42.1.0/24 -d 10.43.1.0/24 -j ACCEPT
+[2025-11-11 14:42:56] Command failed (rc=127): /bin/sh: 1: iptables: Permission denied
+[2025-11-11 14:42:56] ERROR: Command failed: iptables -A FORWARD -s 10.42.1.0/24 -d 10.43.1.0/24 -j ACCEPT
+[2025-11-11 14:42:56] Running: ip netns exec vpc1-public-ns iptables -F INPUT || true
+[2025-11-11 14:42:56] Running: ip netns exec vpc1-public-ns iptables -F FORWARD || true
+[2025-11-11 14:42:56] Running: ip netns exec vpc1-public-ns iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
+[2025-11-11 14:42:56] Command failed (rc=1): exec of "iptables" failed: Permission denied
+[2025-11-11 14:42:56] ERROR: Command failed: ip netns exec vpc1-public-ns iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
