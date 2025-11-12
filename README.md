@@ -37,6 +37,12 @@ All actions are logged and resources can be cleaned up using the cleanup script.
 
 1. Clone or copy the repository to your Linux machine.
 
+```bash
+git clone https://github.com/ik-alex/HNG-13-DevOps.git
+cd HNG-13-DevOps/stage-4
+chmod +x vpcctl.py vpcctl_cleanup.py
+```
+
 2. Make scripts executable:
 
 ```bash
