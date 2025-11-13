@@ -145,30 +145,104 @@ def deploy_server(args):
     run(f"ip netns exec {ns} nohup python3 -m http.server {port} >/tmp/vpcctl-{ns}-{port}.log 2>&1 &")
     log(f"Deployed http.server in {ns} on port {port}")
 
+# def peer_vpcs(args):
+#     state = load_state()
+#     a, b, allow = args.vpc_a, args.vpc_b, args.allow
+#     if a not in state["vpcs"] or b not in state["vpcs"]:
+#         raise SystemExit("Both VPCs must exist")
+#     pair_a = short_ifname("peer", a, b, "a")
+#     pair_b = short_ifname("peer", a, b, "b")
+#     if not exists_link(pair_a):
+#         run(f"ip link add {pair_a} type veth peer name {pair_b}")
+#     run(f"ip link set {pair_a} master {state['vpcs'][a]['bridge']}")
+#     run(f"ip link set {pair_b} master {state['vpcs'][b]['bridge']}")
+#     run(f"ip link set {pair_a} up")
+#     run(f"ip link set {pair_b} up")
+#     state["peers"].append({"vpc_a": a, "vpc_b": b, "pair_a": pair_a, "pair_b": pair_b, "allow": allow})
+#     save_state(state)
+#     if allow:
+#         for p in allow.split(','):
+#             left, right = p.split(':')
+#             run(f"iptables -A FORWARD -s {left} -d {right} -j ACCEPT")
+#             run(f"iptables -A FORWARD -s {right} -d {left} -j ACCEPT")
+#         va, vb = state['vpcs'][a]['cidr'], state['vpcs'][b]['cidr']
+#         run(f"iptables -A FORWARD -s {va} -d {vb} -j DROP")
+#         run(f"iptables -A FORWARD -s {vb} -d {va} -j DROP")
+#     log(f"Peered {a} <-> {b} allow={allow}")
+
 def peer_vpcs(args):
     state = load_state()
     a, b, allow = args.vpc_a, args.vpc_b, args.allow
     if a not in state["vpcs"] or b not in state["vpcs"]:
         raise SystemExit("Both VPCs must exist")
-    pair_a = short_ifname("peer", a, b, "a")
-    pair_b = short_ifname("peer", a, b, "b")
-    if not exists_link(pair_a):
-        run(f"ip link add {pair_a} type veth peer name {pair_b}")
-    run(f"ip link set {pair_a} master {state['vpcs'][a]['bridge']}")
-    run(f"ip link set {pair_b} master {state['vpcs'][b]['bridge']}")
-    run(f"ip link set {pair_a} up")
-    run(f"ip link set {pair_b} up")
-    state["peers"].append({"vpc_a": a, "vpc_b": b, "pair_a": pair_a, "pair_b": pair_b, "allow": allow})
+
+    router_ns = short_ifname("peer", a, b, "rns")
+    # names
+    ra_ns = short_ifname("r", a)
+    ra_br = short_ifname("r", a, "br")
+    rb_ns = short_ifname("r", b)
+    rb_br = short_ifname("r", b, "br")
+
+    # create namespace if not exists
+    if not exists_netns(router_ns):
+        run(f"ip netns add {router_ns}")
+
+    # create veth pairs (router-side and bridge-side)
+    if not exists_link(ra_ns):
+        run(f"ip link add {ra_ns} type veth peer name {ra_br}")
+    if not exists_link(rb_ns):
+        run(f"ip link add {rb_ns} type veth peer name {rb_br}")
+
+    # attach bridge-side ends to each VPC bridge and bring up
+    run(f"ip link set {ra_br} master {state['vpcs'][a]['bridge']}")
+    run(f"ip link set {rb_br} master {state['vpcs'][b]['bridge']}")
+    run(f"ip link set {ra_br} up")
+    run(f"ip link set {rb_br} up")
+
+    # move router-side ends into router namespace
+    run(f"ip link set {ra_ns} netns {router_ns}")
+    run(f"ip link set {rb_ns} netns {router_ns}")
+
+    # compute router IPs — pick .254 in each public subnet (should be free)
+    cidr_a = ipaddress.ip_network(state['vpcs'][a]['cidr'])
+    cidr_b = ipaddress.ip_network(state['vpcs'][b]['cidr'])
+    # we need IPs in the specific *subnet* used for peering (use public subnet gw's network)
+    # find a public subnet entry in each VPC
+    def find_public_subnet(v):
+        for sname, s in state['vpcs'][v]['subnets'].items():
+            return ipaddress.ip_network(s['cidr'])
+        raise SystemExit(f"No subnet found in VPC {v}")
+
+    net_a = find_public_subnet(a)
+    net_b = find_public_subnet(b)
+
+    router_ip_a = str(list(net_a.hosts())[-1])  # .254-ish
+    router_ip_b = str(list(net_b.hosts())[-1])
+
+    # configure router namespace interfaces
+    run(f"ip netns exec {router_ns} ip addr add {router_ip_a}/{net_a.prefixlen} dev {ra_ns}")
+    run(f"ip netns exec {router_ns} ip link set {ra_ns} up")
+    run(f"ip netns exec {router_ns} ip addr add {router_ip_b}/{net_b.prefixlen} dev {rb_ns}")
+    run(f"ip netns exec {router_ns} ip link set {rb_ns} up")
+    run(f"ip netns exec {router_ns} ip link set lo up")
+
+    # enable ip forwarding inside router namespace
+    run(f"ip netns exec {router_ns} sysctl -w net.ipv4.ip_forward=1")
+
+    # add host routes: route traffic for VPC-A via router_ip_a and VPC-B via router_ip_b
+    # (This ensures the host knows to route between them via the router)
+    run(f"ip route add {state['vpcs'][a]['cidr']} via {router_ip_a} dev {ra_br} || true")
+    run(f"ip route add {state['vpcs'][b]['cidr']} via {router_ip_b} dev {rb_br} || true")
+
+    # Allow forwarding in host iptables between those CIDRs (and any explicit allow rules)
+    run(f"iptables -A FORWARD -s {state['vpcs'][a]['cidr']} -d {state['vpcs'][b]['cidr']} -j ACCEPT || true")
+    run(f"iptables -A FORWARD -s {state['vpcs'][b]['cidr']} -d {state['vpcs'][a]['cidr']} -j ACCEPT || true")
+
+    state["peers"].append({"vpc_a": a, "vpc_b": b, "router_ns": router_ns,
+                          "ra_ns": ra_ns, "ra_br": ra_br, "rb_ns": rb_ns, "rb_br": rb_br, "allow": allow})
     save_state(state)
-    if allow:
-        for p in allow.split(','):
-            left, right = p.split(':')
-            run(f"iptables -A FORWARD -s {left} -d {right} -j ACCEPT")
-            run(f"iptables -A FORWARD -s {right} -d {left} -j ACCEPT")
-        va, vb = state['vpcs'][a]['cidr'], state['vpcs'][b]['cidr']
-        run(f"iptables -A FORWARD -s {va} -d {vb} -j DROP")
-        run(f"iptables -A FORWARD -s {vb} -d {va} -j DROP")
-    log(f"Peered {a} <-> {b} allow={allow}")
+    log(f"Peered {a} <-> {b} via router ns {router_ns} (ra={router_ip_a}, rb={router_ip_b})")
+
 
 def apply_policy(args):
     state = load_state()

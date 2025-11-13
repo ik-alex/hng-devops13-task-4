@@ -178,6 +178,35 @@ sudo ./vpcctl_cleanup.py
 
 Logs for cleanup are saved in `vpcctl_cleanup.log`.
 
+If you encounter errors such as
+`RTNETLINK answers: File exists` or `Device does not exist`,
+it means leftover network namespaces or interfaces are still present from a previous run.
+
+Use the following command to safely remove all VPC-related namespaces, bridges, and veth pairs before recreating them:
+
+```bash
+sudo bash -c '
+for ns in $(ip netns list | awk "{print \$1}"); do
+  echo "Deleting namespace $ns"
+  ip netns delete $ns
+done
+
+for iface in $(ip link show | grep -E "vpc|pee|br-" | awk -F: "{print \$2}" | sed "s/@.*//" | tr -d " "); do
+  echo "Deleting interface $iface"
+  ip link delete $iface 2>/dev/null
+done
+
+echo "Cleanup complete!"
+'
+```
+
+After running this script, verify cleanup:
+
+```bash
+ip netns list
+ip link show | grep -E 'vpc|pee|br-'
+```
+
 ## Logging
 
 All operations are logged in `vpcctl.log` for debugging and auditing.
