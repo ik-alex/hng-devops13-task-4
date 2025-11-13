@@ -46,46 +46,53 @@ def ensure_root():
 def cleanup_vpcs():
     ensure_root()
     if not STATE_PATH.exists():
-        log("No state file found; nothing to clean")
-        return
+        log("No state file found; attempting best-effort cleanup")
+        state = {}
+    else:
+        try:
+            state = json.loads(STATE_PATH.read_text())
+        except json.JSONDecodeError:
+            log("State file is corrupted; proceeding with best-effort cleanup")
+            state = {}
 
-    state = json.loads(STATE_PATH.read_text())
-
-    # Delete peers first
+    # ---------------- Delete peer veths ----------------
     for peer in state.get("peers", []):
+        vpc_a = peer.get("vpc_a", "unknown")
+        vpc_b = peer.get("vpc_b", "unknown")
         for link in ["pair_a", "pair_b"]:
-            if exists_link(peer[link]):
-                run(f"ip link delete {peer[link]}")
-        log(f"Deleted peer veths between {peer['vpc_a']} and {peer['vpc_b']}")
+            link_name = peer.get(link)
+            if link_name and exists_link(link_name):
+                run(f"ip link delete {link_name}")
+        log(f"Deleted peer veths between {vpc_a} and {vpc_b}")
 
-    # Delete subnets and namespaces
+    # ---------------- Delete subnets and namespaces ----------------
     for vpc_name, vpc in state.get("vpcs", {}).items():
         for subnet_name, subnet in vpc.get("subnets", {}).items():
-            ns = subnet["ns"]
-            veth_br = subnet["veth_br"]
-            if exists_netns(ns):
+            ns = subnet.get("ns")
+            veth_br = subnet.get("veth_br")
+            if ns and exists_netns(ns):
                 run(f"ip netns delete {ns}")
                 log(f"Deleted namespace {ns}")
-            if exists_link(veth_br):
+            if veth_br and exists_link(veth_br):
                 run(f"ip link delete {veth_br}")
                 log(f"Deleted veth {veth_br}")
 
-    # Delete bridges
+    # ---------------- Delete bridges ----------------
     for vpc_name, vpc in state.get("vpcs", {}).items():
-        bridge = vpc["bridge"]
-        if exists_link(bridge):
+        bridge = vpc.get("bridge")
+        if bridge and exists_link(bridge):
             run(f"ip link set {bridge} down")
             run(f"ip link delete {bridge}")
             log(f"Deleted bridge {bridge}")
 
-    # Clear iptables NAT/forward rules (best-effort)
+    # ---------------- Clear iptables rules ----------------
     run("iptables -F")
     run("iptables -t nat -F")
     run("iptables -X")
     run("iptables -t nat -X")
     log("Flushed all iptables rules")
 
-    # Remove state file
+    # ---------------- Remove state file ----------------
     try:
         STATE_PATH.unlink()
         log("Deleted state file")
